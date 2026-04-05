@@ -1,0 +1,21 @@
+# Tasks
+
+- `[/]` Scaffold web application structure
+  - `[ ]` Create index.html
+  - `[ ]` Create css/style.css
+  - `[ ]` Create js/app.js
+  - `[ ]` Create js/store.js
+- `[ ]` Implement UI & Styling (CSS & HTML)
+  - `[ ]` Apply modern typography (Inter/Roboto)
+  - `[ ]` Develop premium CSS variables (colors, shadows, glassmorphism)
+  - `[ ]` Build Dashboard Layout (Stats cards)
+  - `[ ]` Build Student List Table/Grid
+  - `[ ]` Build "Add Student" and "Make Payment" Modal Forms
+- `[ ]` Implement JavaScript Logic
+  - `[ ]` LocalStorage data management (store.js)
+  - `[ ]` UI rendering logic (app.js)
+  - `[ ]` Form submission handlers
+  - `[ ]` Data calculation capabilities (total fees, outstanding balance)
+- `[ ]` Verification and Final Polish
+  - `[ ]` Test responsiveness
+  - `[ ]` Validate workflows

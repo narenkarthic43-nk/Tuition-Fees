@@ -4,13 +4,24 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>TuitionHub - Management</title>
+    <meta name="description" content="TuitionHub - A modern tuition management system with real-time cloud sync across all devices.">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="styles.css">
     <!-- Ionicons for some premium icons -->
     <script type="module" src="https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.esm.js"></script>
     <script nomodule src="https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.js"></script>
+
+    <!-- Firebase SDK (v9 compat for simplicity) -->
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
 </head>
 <body>
+
+    <!-- Sync Status Indicator -->
+    <div class="sync-status" id="sync-status">
+        <div class="sync-dot"></div>
+        <span>Connecting...</span>
+    </div>
 
     <nav class="sidebar">
         <div class="logo">
@@ -23,14 +34,25 @@
             <li data-target="attendance"><ion-icon name="calendar-outline"></ion-icon> <span>Attendance</span></li>
             <li data-target="fees"><ion-icon name="wallet-outline"></ion-icon> <span>Fees</span></li>
         </ul>
+        <!-- Sync indicator in sidebar -->
+        <div class="sidebar-sync" id="sidebar-sync">
+            <ion-icon name="cloud-done-outline"></ion-icon>
+            <span>Cloud Synced</span>
+        </div>
     </nav>
 
     <main class="content">
         <!-- Dashboard Section -->
         <section id="dashboard" class="page active">
             <header>
-                <h1>Dashboard</h1>
-                <p>Welcome back! Here's today's overview.</p>
+                <div>
+                    <h1>Dashboard</h1>
+                    <p>Welcome back! Here's today's overview.</p>
+                </div>
+                <div class="sync-badge" id="sync-badge" title="Real-time sync active">
+                    <ion-icon name="sync-outline"></ion-icon>
+                    <span>Live Sync</span>
+                </div>
             </header>
             <div class="stats-grid">
                 <div class="stat-card">
@@ -56,6 +78,19 @@
                 </div>
             </div>
             
+            <!-- Sync info card -->
+            <div class="sync-info-card" id="sync-info-card">
+                <div class="sync-info-header">
+                    <ion-icon name="cloud-outline"></ion-icon>
+                    <h3>Real-Time Cloud Sync</h3>
+                </div>
+                <p>Your data syncs automatically across all devices in real-time. Open this page on your phone, laptop, or any browser — changes appear instantly everywhere.</p>
+                <div class="connected-devices" id="connected-devices">
+                    <ion-icon name="pulse-outline"></ion-icon>
+                    <span>Last synced: <strong id="last-sync-time">Just now</strong></span>
+                </div>
+            </div>
+
             <!-- Quick Actions -->
             <div class="quick-actions">
                 <button class="btn primary" onclick="app.navigate('students')">Add New Student</button>

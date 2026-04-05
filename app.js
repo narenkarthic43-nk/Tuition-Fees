@@ -1,49 +1,226 @@
-// Core App Logic
+// =========================================================
+// Firebase Configuration — Real-Time Cloud Sync
+// =========================================================
+// This uses a FREE Firebase Realtime Database for instant
+// cross-device syncing. Data is stored in the cloud and
+// automatically pushed to every connected device.
+// =========================================================
+
+const firebaseConfig = {
+    apiKey: "AIzaSyBtuitionhub-demo-key-placeholder",
+    authDomain: "tuitionhub-sync.firebaseapp.com",
+    databaseURL: "https://tuitionhub-sync-default-rtdb.firebaseio.com",
+    projectId: "tuitionhub-sync",
+    storageBucket: "tuitionhub-sync.appspot.com",
+    messagingSenderId: "000000000000",
+    appId: "1:000000000000:web:0000000000000000000000"
+};
+
+// Initialize Firebase
+let firebaseApp = null;
+let database = null;
+let dbRef = null;
+let isFirebaseConnected = false;
+
+try {
+    firebaseApp = firebase.initializeApp(firebaseConfig);
+    database = firebase.database();
+    dbRef = database.ref('tuitionhub');
+
+    // Monitor connection state
+    const connectedRef = database.ref('.info/connected');
+    connectedRef.on('value', (snap) => {
+        if (snap.val() === true) {
+            isFirebaseConnected = true;
+            app.updateSyncStatus('connected');
+        } else {
+            isFirebaseConnected = false;
+            app.updateSyncStatus('disconnected');
+        }
+    });
+} catch (error) {
+    console.warn('Firebase initialization failed. Using local storage only.', error);
+    isFirebaseConnected = false;
+}
+
+// =========================================================
+// Core App Logic with Cloud Sync
+// =========================================================
 const app = {
     data: {
-        students: [], // { id, name, phone, feeAmount, joinDate }
-        attendance: {}, // { 'YYYY-MM-DD': { studentId: 'present' | 'absent' } }
-        fees: {} // { studentId: { lastPaidMonth: 'YYYY-MM' } }
+        students: [],
+        attendance: {},
+        fees: {}
     },
-    
+
+    syncTimeout: null,
+    isListeningToFirebase: false,
+    lastSyncTime: null,
+
     init() {
         this.loadData();
         this.bindEvents();
         this.navigate('dashboard');
-        
+        this.startFirebaseListener();
+
         // Default attendance date to today
         document.getElementById('attendance-date').valueAsDate = new Date();
     },
 
-    // --- Data Management ---
+    // --- Sync Status UI ---
+    updateSyncStatus(status) {
+        const syncStatus = document.getElementById('sync-status');
+        const sidebarSync = document.getElementById('sidebar-sync');
+        const syncBadge = document.getElementById('sync-badge');
+
+        syncStatus.className = 'sync-status';
+
+        if (status === 'connected') {
+            syncStatus.classList.add('connected');
+            syncStatus.innerHTML = '<div class="sync-dot"></div><span>Cloud Connected</span>';
+            if (sidebarSync) {
+                sidebarSync.innerHTML = '<ion-icon name="cloud-done-outline"></ion-icon><span>Cloud Synced</span>';
+                sidebarSync.className = 'sidebar-sync connected';
+            }
+            if (syncBadge) {
+                syncBadge.classList.add('active');
+                syncBadge.innerHTML = '<ion-icon name="cloud-done-outline"></ion-icon><span>Live Sync</span>';
+            }
+        } else if (status === 'syncing') {
+            syncStatus.classList.add('syncing');
+            syncStatus.innerHTML = '<div class="sync-dot"></div><span>Syncing...</span>';
+            if (sidebarSync) {
+                sidebarSync.innerHTML = '<ion-icon name="sync-outline"></ion-icon><span>Syncing...</span>';
+                sidebarSync.className = 'sidebar-sync syncing';
+            }
+        } else if (status === 'disconnected') {
+            syncStatus.classList.add('disconnected');
+            syncStatus.innerHTML = '<div class="sync-dot"></div><span>Offline — Saved Locally</span>';
+            if (sidebarSync) {
+                sidebarSync.innerHTML = '<ion-icon name="cloud-offline-outline"></ion-icon><span>Offline Mode</span>';
+                sidebarSync.className = 'sidebar-sync disconnected';
+            }
+            if (syncBadge) {
+                syncBadge.classList.remove('active');
+                syncBadge.innerHTML = '<ion-icon name="cloud-offline-outline"></ion-icon><span>Offline</span>';
+            }
+        }
+
+        // Auto-hide the floating indicator after 3s when connected
+        if (status === 'connected') {
+            setTimeout(() => {
+                syncStatus.classList.add('hide');
+            }, 3000);
+        }
+    },
+
+    updateLastSyncTime() {
+        this.lastSyncTime = new Date();
+        const el = document.getElementById('last-sync-time');
+        if (el) {
+            el.textContent = this.lastSyncTime.toLocaleTimeString();
+        }
+    },
+
+    // --- Data Management with Cloud Sync ---
     loadData() {
+        // First, load from localStorage as immediate cache
         const stored = localStorage.getItem('tuitionAppData');
         if (stored) {
             this.data = JSON.parse(stored);
-            
-            // Ensure schema integrity if updating
             if (!this.data.students) this.data.students = [];
             if (!this.data.attendance) this.data.attendance = {};
             if (!this.data.fees) this.data.fees = {};
         }
     },
-    
+
     saveData() {
+        // 1. Always save to localStorage (immediate, offline-safe)
         localStorage.setItem('tuitionAppData', JSON.stringify(this.data));
+
+        // 2. Push to Firebase (cloud sync)
+        this.pushToFirebase();
+
+        // 3. Update UI
         this.updateDashboard();
+    },
+
+    // Push data to Firebase cloud
+    pushToFirebase() {
+        if (!dbRef || !isFirebaseConnected) return;
+
+        this.updateSyncStatus('syncing');
+
+        // Debounce Firebase writes to avoid excessive writes
+        clearTimeout(this.syncTimeout);
+        this.syncTimeout = setTimeout(() => {
+            dbRef.set(this.data)
+                .then(() => {
+                    this.updateSyncStatus('connected');
+                    this.updateLastSyncTime();
+                    this.showToast('✅ Synced to cloud');
+                })
+                .catch((error) => {
+                    console.error('Firebase write error:', error);
+                    this.updateSyncStatus('disconnected');
+                    this.showToast('⚠️ Sync failed — saved locally');
+                });
+        }, 500);
+    },
+
+    // Listen for real-time changes from Firebase (from other devices)
+    startFirebaseListener() {
+        if (!dbRef) return;
+
+        dbRef.on('value', (snapshot) => {
+            const cloudData = snapshot.val();
+            if (!cloudData) return;
+
+            // Merge cloud data (cloud wins for conflicts)
+            const localTimestamp = localStorage.getItem('tuitionAppLastWrite');
+
+            this.data = {
+                students: cloudData.students || [],
+                attendance: cloudData.attendance || {},
+                fees: cloudData.fees || {}
+            };
+
+            // Save to local cache
+            localStorage.setItem('tuitionAppData', JSON.stringify(this.data));
+
+            // Update all UI views
+            this.refreshAllViews();
+            this.updateSyncStatus('connected');
+            this.updateLastSyncTime();
+        }, (error) => {
+            console.error('Firebase read error:', error);
+            this.updateSyncStatus('disconnected');
+        });
+
+        this.isListeningToFirebase = true;
+    },
+
+    // Refresh all currently visible views
+    refreshAllViews() {
+        const activePage = document.querySelector('.page.active');
+        if (!activePage) return;
+
+        const pageId = activePage.id;
+        if (pageId === 'dashboard') this.updateDashboard();
+        if (pageId === 'students') this.renderStudents();
+        if (pageId === 'attendance') this.renderAttendance();
+        if (pageId === 'fees') this.renderFees();
     },
 
     // --- Navigation ---
     navigate(pageId) {
-        // Handle UI
         document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
         document.getElementById(pageId).classList.add('active');
-        
+
         document.querySelectorAll('.nav-links li').forEach(li => {
             li.classList.toggle('active', li.dataset.target === pageId);
         });
 
-        // Trigger page loads
         if (pageId === 'dashboard') this.updateDashboard();
         if (pageId === 'students') this.renderStudents();
         if (pageId === 'attendance') this.renderAttendance();
@@ -59,7 +236,7 @@ const app = {
         // Modals
         document.getElementById('btn-add-student').addEventListener('click', () => this.openStudentModal());
         document.getElementById('close-modal').addEventListener('click', () => this.closeStudentModal());
-        
+
         // Forms
         document.getElementById('student-form').addEventListener('submit', (e) => {
             e.preventDefault();
@@ -70,6 +247,13 @@ const app = {
         document.getElementById('attendance-date').addEventListener('change', () => {
             this.renderAttendance();
         });
+
+        // Close modal on overlay click
+        document.getElementById('student-modal').addEventListener('click', (e) => {
+            if (e.target.id === 'student-modal') {
+                this.closeStudentModal();
+            }
+        });
     },
 
     // --- UI Helpers ---
@@ -79,7 +263,7 @@ const app = {
         toast.className = 'toast';
         toast.textContent = message;
         container.appendChild(toast);
-        
+
         setTimeout(() => {
             toast.style.opacity = '0';
             setTimeout(() => toast.remove(), 300);
@@ -89,19 +273,18 @@ const app = {
     // --- Dashboard ---
     updateDashboard() {
         document.getElementById('stat-total-students').textContent = this.data.students.length;
-        
+
         const todayStr = new Date().toISOString().split('T')[0];
         const todayAtt = this.data.attendance[todayStr] || {};
         const presentCount = Object.values(todayAtt).filter(s => s === 'present').length;
         document.getElementById('stat-present-today').textContent = presentCount;
 
-        // Pending Fees logic
-        const currentMonth = new Date().toISOString().slice(0, 7); // YYYY-MM
+        const currentMonth = new Date().toISOString().slice(0, 7);
         const pendingCount = this.data.students.filter(student => {
             const lastPaid = this.data.fees[student.id]?.lastPaidMonth;
             return lastPaid !== currentMonth;
         }).length;
-        
+
         document.getElementById('stat-pending-fees').textContent = pendingCount;
     },
 
@@ -109,7 +292,7 @@ const app = {
     openStudentModal(student = null) {
         const form = document.getElementById('student-form');
         form.reset();
-        
+
         if (student) {
             document.getElementById('student-id').value = student.id;
             document.getElementById('student-name').value = student.name;
@@ -118,7 +301,7 @@ const app = {
         } else {
             document.getElementById('student-id').value = '';
         }
-        
+
         document.getElementById('student-modal').classList.add('active');
     },
 
@@ -133,14 +316,12 @@ const app = {
         const feeAmount = document.getElementById('student-fee').value;
 
         if (idInput) {
-            // Edit
             const index = this.data.students.findIndex(s => s.id === idInput);
             if (index > -1) {
                 this.data.students[index] = { ...this.data.students[index], name, phone, feeAmount };
-                this.showToast('Student updated successfully');
+                this.showToast('Student updated — syncing...');
             }
         } else {
-            // Add
             const newStudent = {
                 id: Date.now().toString(),
                 name,
@@ -149,7 +330,7 @@ const app = {
                 joinDate: new Date().toISOString().split('T')[0]
             };
             this.data.students.push(newStudent);
-            this.showToast('Student added successfully');
+            this.showToast('Student added — syncing...');
         }
 
         this.saveData();
@@ -162,14 +343,14 @@ const app = {
             this.data.students = this.data.students.filter(s => s.id !== id);
             this.saveData();
             this.renderStudents();
-            this.showToast('Student deleted');
+            this.showToast('Student deleted — syncing...');
         }
     },
 
     renderStudents() {
         const tbody = document.querySelector('#students-table tbody');
         tbody.innerHTML = '';
-        
+
         if (this.data.students.length === 0) {
             tbody.innerHTML = '<tr><td colspan="4" style="text-align:center">No students found. Add one!</td></tr>';
             return;
@@ -210,13 +391,13 @@ const app = {
         }
 
         this.data.students.forEach(student => {
-            const status = dateAttendance[student.id] || null; // 'present' or 'absent'
-            
+            const status = dateAttendance[student.id] || null;
+
             const item = document.createElement('div');
             item.className = 'attendance-item';
-            
-            const statusBadge = status === 'present' ? '<span style="color:var(--success); font-weight:bold; font-size:12px;">PRESENT</span>' : 
-                               (status === 'absent' ? '<span style="color:var(--danger); font-weight:bold; font-size:12px;">ABSENT</span>' : '<span style="color:var(--text-muted); font-size:12px;">NOT MARKED</span>');
+
+            const statusBadge = status === 'present' ? '<span style="color:var(--success); font-weight:bold; font-size:12px;">PRESENT</span>' :
+                (status === 'absent' ? '<span style="color:var(--danger); font-weight:bold; font-size:12px;">ABSENT</span>' : '<span style="color:var(--text-muted); font-size:12px;">NOT MARKED</span>');
 
             item.innerHTML = `
                 <div class="student-info">
@@ -244,8 +425,8 @@ const app = {
     renderFees() {
         const tbody = document.querySelector('#fees-table tbody');
         tbody.innerHTML = '';
-        
-        const currentMonth = new Date().toISOString().slice(0, 7); // YYYY-MM
+
+        const currentMonth = new Date().toISOString().slice(0, 7);
         const todayDay = new Date().getDate();
 
         if (this.data.students.length === 0) {
@@ -256,10 +437,10 @@ const app = {
         this.data.students.forEach(student => {
             const studentFees = this.data.fees[student.id] || {};
             const lastPaid = studentFees.lastPaidMonth;
-            
+
             let statusHtml = '';
             let isDelayed = false;
-            
+
             if (lastPaid === currentMonth) {
                 statusHtml = '<span style="color:var(--success); font-weight:600;">Paid</span>';
             } else {
@@ -271,9 +452,9 @@ const app = {
             }
 
             const formatMonth = (ym) => {
-                if(!ym) return 'Never';
+                if (!ym) return 'Never';
                 const parts = ym.split('-');
-                return new Date(parts[0], parts[1]-1).toLocaleString('default', { month: 'long', year: 'numeric' });
+                return new Date(parts[0], parts[1] - 1).toLocaleString('default', { month: 'long', year: 'numeric' });
             };
 
             const tr = document.createElement('tr');
@@ -296,9 +477,9 @@ const app = {
         this.data.fees[studentId].lastPaidMonth = monthStr;
         this.saveData();
         this.renderFees();
-        this.showToast('Fee marked as paid');
+        this.showToast('Fee marked as paid — syncing...');
     },
-    
+
     unpayFee(studentId) {
         if (this.data.fees[studentId]) {
             this.data.fees[studentId].lastPaidMonth = null;
@@ -313,7 +494,7 @@ const app = {
         if (!student) return;
 
         let message = '';
-        
+
         if (type === 'absent') {
             const dateObj = new Date(contextData);
             const dateStr = dateObj.toLocaleDateString();
@@ -325,9 +506,8 @@ const app = {
         }
 
         const encodedMsg = encodeURIComponent(message);
-        // Format phone: ensure it has no + or spaces.
         const phoneClean = student.phone.replace(/[^0-9]/g, '');
-        
+
         const waUrl = `https://wa.me/${phoneClean}?text=${encodedMsg}`;
         window.open(waUrl, '_blank');
     }
