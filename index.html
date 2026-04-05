@@ -1,47 +1,126 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>TuitionHub - Management</title>
-    <meta name="description" content="TuitionHub - A modern tuition management system with real-time cloud sync across all devices.">
+    <meta name="description"
+        content="TuitionHub - A modern tuition management system with real-time cloud sync across all devices.">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="styles.css">
-    <!-- Ionicons for some premium icons -->
+    <!-- Ionicons -->
     <script type="module" src="https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.esm.js"></script>
     <script nomodule src="https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.js"></script>
-
-    <!-- Firebase SDK (v9 compat for simplicity) -->
-    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
 </head>
+
 <body>
 
-    <!-- Sync Status Indicator -->
+    <!-- ============================== -->
+    <!-- Sync Setup Screen (shown first) -->
+    <!-- ============================== -->
+    <div class="sync-setup-overlay" id="sync-setup-overlay">
+        <div class="sync-setup-card">
+            <div class="sync-setup-logo">
+                <ion-icon name="school-outline"></ion-icon>
+                <h1>TuitionHub</h1>
+                <p class="sync-setup-subtitle">Cloud Synced Tuition Management</p>
+            </div>
+
+            <div class="sync-setup-options">
+                <div class="sync-option" id="opt-new">
+                    <div class="sync-option-icon new-icon">
+                        <ion-icon name="add-circle-outline"></ion-icon>
+                    </div>
+                    <h3>Start Fresh</h3>
+                    <p>Create a new account with cloud sync enabled. You'll get a unique Sync Code to use on other
+                        devices.</p>
+                    <button class="btn primary full-width" id="btn-new-sync" onclick="syncManager.createNewSync()">
+                        <ion-icon name="cloud-upload-outline"></ion-icon> Create New Sync
+                    </button>
+                </div>
+
+                <div class="sync-divider">
+                    <span>OR</span>
+                </div>
+
+                <div class="sync-option" id="opt-join">
+                    <div class="sync-option-icon join-icon">
+                        <ion-icon name="link-outline"></ion-icon>
+                    </div>
+                    <h3>Join Existing</h3>
+                    <p>Already using TuitionHub on another device? Enter your Sync Code below to connect.</p>
+                    <div class="sync-code-input-group">
+                        <input type="text" id="join-sync-code" placeholder="Paste your Sync Code here"
+                            spellcheck="false">
+                        <button class="btn primary" id="btn-join-sync" onclick="syncManager.joinExistingSync()">
+                            <ion-icon name="log-in-outline"></ion-icon> Connect
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <p class="sync-setup-footer">🔒 Your data is stored securely in the cloud. No login required.</p>
+        </div>
+    </div>
+
+    <!-- ============================== -->
+    <!-- Sync Code Display Modal        -->
+    <!-- ============================== -->
+    <div class="modal-overlay" id="sync-code-modal">
+        <div class="modal sync-code-display-modal">
+            <div class="modal-header">
+                <h2>Your Sync Code</h2>
+                <button class="close-btn"
+                    onclick="document.getElementById('sync-code-modal').classList.remove('active')"><ion-icon
+                        name="close"></ion-icon></button>
+            </div>
+            <div class="modal-body" style="text-align:center;">
+                <p style="margin-bottom:1rem; color:var(--text-muted);">Use this code on any other device to sync your
+                    data.</p>
+                <div class="sync-code-box" id="sync-code-display">—</div>
+                <button class="btn primary" style="margin-top:1rem;" onclick="syncManager.copySyncCode()">
+                    <ion-icon name="copy-outline"></ion-icon> Copy Code
+                </button>
+                <p style="margin-top:1.5rem; font-size:0.8rem; color: var(--text-muted);">⚠️ Save this code! You need it
+                    to access your data from other devices.</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- ============================== -->
+    <!-- Floating Sync Status           -->
+    <!-- ============================== -->
     <div class="sync-status" id="sync-status">
         <div class="sync-dot"></div>
         <span>Connecting...</span>
     </div>
 
-    <nav class="sidebar">
+    <!-- ============================== -->
+    <!-- Sidebar Navigation             -->
+    <!-- ============================== -->
+    <nav class="sidebar" id="main-sidebar" style="display:none;">
         <div class="logo">
             <ion-icon name="school-outline"></ion-icon>
             <span>TuitionHub</span>
         </div>
         <ul class="nav-links">
-            <li class="active" data-target="dashboard"><ion-icon name="grid-outline"></ion-icon> <span>Dashboard</span></li>
+            <li class="active" data-target="dashboard"><ion-icon name="grid-outline"></ion-icon> <span>Dashboard</span>
+            </li>
             <li data-target="students"><ion-icon name="people-outline"></ion-icon> <span>Students</span></li>
             <li data-target="attendance"><ion-icon name="calendar-outline"></ion-icon> <span>Attendance</span></li>
             <li data-target="fees"><ion-icon name="wallet-outline"></ion-icon> <span>Fees</span></li>
         </ul>
-        <!-- Sync indicator in sidebar -->
-        <div class="sidebar-sync" id="sidebar-sync">
+        <div class="sidebar-sync connected" id="sidebar-sync">
             <ion-icon name="cloud-done-outline"></ion-icon>
             <span>Cloud Synced</span>
         </div>
     </nav>
 
-    <main class="content">
+    <!-- ============================== -->
+    <!-- Main Content                    -->
+    <!-- ============================== -->
+    <main class="content" id="main-content" style="display:none;">
         <!-- Dashboard Section -->
         <section id="dashboard" class="page active">
             <header>
@@ -49,9 +128,10 @@
                     <h1>Dashboard</h1>
                     <p>Welcome back! Here's today's overview.</p>
                 </div>
-                <div class="sync-badge" id="sync-badge" title="Real-time sync active">
-                    <ion-icon name="sync-outline"></ion-icon>
-                    <span>Live Sync</span>
+                <div class="sync-badge active" id="sync-badge" title="Real-time sync active"
+                    onclick="syncManager.showSyncCode()">
+                    <ion-icon name="cloud-done-outline"></ion-icon>
+                    <span id="sync-badge-text">Live Sync</span>
                 </div>
             </header>
             <div class="stats-grid">
@@ -77,24 +157,29 @@
                     </div>
                 </div>
             </div>
-            
+
             <!-- Sync info card -->
             <div class="sync-info-card" id="sync-info-card">
                 <div class="sync-info-header">
                     <ion-icon name="cloud-outline"></ion-icon>
-                    <h3>Real-Time Cloud Sync</h3>
+                    <h3>Real-Time Cloud Sync Active</h3>
                 </div>
-                <p>Your data syncs automatically across all devices in real-time. Open this page on your phone, laptop, or any browser — changes appear instantly everywhere.</p>
+                <p>Your data syncs automatically across all devices. Open this page on your phone, laptop, or any
+                    browser — changes appear instantly everywhere.</p>
                 <div class="connected-devices" id="connected-devices">
                     <ion-icon name="pulse-outline"></ion-icon>
                     <span>Last synced: <strong id="last-sync-time">Just now</strong></span>
+                    <span style="margin-left: auto; cursor: pointer; color: var(--primary); font-weight:600;"
+                        onclick="syncManager.showSyncCode()">View Sync Code</span>
                 </div>
             </div>
 
             <!-- Quick Actions -->
             <div class="quick-actions">
-                <button class="btn primary" onclick="app.navigate('students')">Add New Student</button>
-                <button class="btn secondary" onclick="app.navigate('attendance')">Mark Attendance</button>
+                <button class="btn primary" onclick="app.navigate('students')"><ion-icon name="add"></ion-icon> Add New
+                    Student</button>
+                <button class="btn secondary" onclick="app.navigate('attendance')"><ion-icon
+                        name="calendar-outline"></ion-icon> Mark Attendance</button>
             </div>
         </section>
 
@@ -104,7 +189,6 @@
                 <h1>Students</h1>
                 <button class="btn primary" id="btn-add-student"><ion-icon name="add"></ion-icon> Add Student</button>
             </header>
-            
             <div class="card">
                 <div class="table-responsive">
                     <table id="students-table">
@@ -116,9 +200,7 @@
                                 <th>Actions</th>
                             </tr>
                         </thead>
-                        <tbody>
-                            <!-- Dynamic Content -->
-                        </tbody>
+                        <tbody></tbody>
                     </table>
                 </div>
             </div>
@@ -132,11 +214,8 @@
                     <input type="date" id="attendance-date">
                 </div>
             </header>
-            
             <div class="card">
-                <div class="attendance-list" id="attendance-list">
-                    <!-- Dynamic Content -->
-                </div>
+                <div class="attendance-list" id="attendance-list"></div>
             </div>
         </section>
 
@@ -146,7 +225,6 @@
                 <h1>Fee Management</h1>
                 <p class="subtitle">Track monthly payments and send delayed reminders.</p>
             </header>
-            
             <div class="card">
                 <div class="table-responsive">
                     <table id="fees-table">
@@ -159,9 +237,7 @@
                                 <th>Actions</th>
                             </tr>
                         </thead>
-                        <tbody>
-                            <!-- Dynamic Content -->
-                        </tbody>
+                        <tbody></tbody>
                     </table>
                 </div>
             </div>
@@ -197,9 +273,10 @@
         </div>
     </div>
 
-    <!-- Alert Modal for WhatsApp confirmation -->
+    <!-- Toast container -->
     <div class="toast-container" id="toast-container"></div>
 
     <script src="app.js"></script>
 </body>
+
 </html>

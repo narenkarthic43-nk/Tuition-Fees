@@ -17,8 +17,10 @@
     
     --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
     --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+    --shadow-lg: 0 20px 50px -10px rgba(0, 0, 0, 0.15);
     --radius-md: 0.5rem;
     --radius-lg: 0.75rem;
+    --radius-xl: 1rem;
     
     font-family: 'Inter', sans-serif;
 }
@@ -37,7 +39,180 @@ body {
 }
 
 /* ==============================
-   Sync Status Indicator (Floating)
+   SYNC SETUP SCREEN
+   ============================== */
+.sync-setup-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+    padding: 1rem;
+}
+
+.sync-setup-card {
+    background: var(--card-bg);
+    border-radius: var(--radius-xl);
+    box-shadow: var(--shadow-lg);
+    padding: 2.5rem;
+    max-width: 520px;
+    width: 100%;
+    animation: setupFadeIn 0.6s ease;
+}
+
+@keyframes setupFadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(30px) scale(0.97);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
+.sync-setup-logo {
+    text-align: center;
+    margin-bottom: 2rem;
+}
+
+.sync-setup-logo ion-icon {
+    font-size: 3rem;
+    color: var(--primary);
+    margin-bottom: 0.5rem;
+}
+
+.sync-setup-logo h1 {
+    font-size: 1.75rem;
+    font-weight: 700;
+    color: var(--text-main);
+}
+
+.sync-setup-subtitle {
+    color: var(--text-muted);
+    font-size: 0.9rem;
+    margin-top: 0.25rem;
+}
+
+.sync-setup-options {
+    margin-bottom: 1.5rem;
+}
+
+.sync-option {
+    padding: 1.5rem;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    transition: all 0.25s ease;
+}
+
+.sync-option:hover {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.08);
+}
+
+.sync-option h3 {
+    font-size: 1rem;
+    font-weight: 600;
+    margin-bottom: 0.5rem;
+}
+
+.sync-option p {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    line-height: 1.5;
+    margin-bottom: 1rem;
+}
+
+.sync-option-icon {
+    width: 2.5rem;
+    height: 2.5rem;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.25rem;
+    margin-bottom: 0.75rem;
+}
+
+.sync-option-icon.new-icon {
+    background: rgba(79, 70, 229, 0.1);
+    color: var(--primary);
+}
+
+.sync-option-icon.join-icon {
+    background: rgba(16, 185, 129, 0.1);
+    color: var(--success);
+}
+
+.sync-divider {
+    display: flex;
+    align-items: center;
+    margin: 1.25rem 0;
+}
+
+.sync-divider::before,
+.sync-divider::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--border-color);
+}
+
+.sync-divider span {
+    padding: 0 1rem;
+    color: var(--text-muted);
+    font-size: 0.8rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+}
+
+.sync-code-input-group {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.sync-code-input-group input {
+    flex: 1;
+    font-family: 'Courier New', monospace;
+    font-size: 0.85rem;
+    letter-spacing: 0.5px;
+}
+
+.sync-setup-footer {
+    text-align: center;
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+/* ==============================
+   SYNC CODE DISPLAY
+   ============================== */
+.sync-code-box {
+    background: linear-gradient(135deg, #1E1B4B, #312E81);
+    color: #A5B4FC;
+    font-family: 'Courier New', monospace;
+    font-size: 0.85rem;
+    letter-spacing: 1px;
+    padding: 1rem 1.5rem;
+    border-radius: var(--radius-md);
+    word-break: break-all;
+    user-select: all;
+    cursor: text;
+    border: 2px solid #4338CA;
+}
+
+.sync-code-display-modal .modal-body {
+    padding: 2rem;
+}
+
+/* ==============================
+   SYNC STATUS INDICATOR (Floating)
    ============================== */
 .sync-status {
     position: fixed;
@@ -72,7 +247,6 @@ body {
     animation: pulse-dot 2s infinite;
 }
 
-/* Connected */
 .sync-status.connected {
     background: rgba(16, 185, 129, 0.15);
     border: 1px solid rgba(16, 185, 129, 0.3);
@@ -83,7 +257,6 @@ body {
     box-shadow: 0 0 8px var(--success);
 }
 
-/* Syncing */
 .sync-status.syncing {
     background: rgba(79, 70, 229, 0.15);
     border: 1px solid rgba(79, 70, 229, 0.3);
@@ -95,7 +268,6 @@ body {
     animation: pulse-dot 0.5s infinite;
 }
 
-/* Disconnected */
 .sync-status.disconnected {
     background: rgba(239, 68, 68, 0.15);
     border: 1px solid rgba(239, 68, 68, 0.3);
@@ -112,7 +284,7 @@ body {
 }
 
 /* ==============================
-   Sidebar Sync Indicator
+   SIDEBAR SYNC INDICATOR
    ============================== */
 .sidebar-sync {
     padding: 1rem 1.5rem;
@@ -130,7 +302,7 @@ body {
 }
 
 .sidebar-sync.syncing {
-    color: var(--primary);
+    color: #818CF8;
 }
 
 .sidebar-sync.syncing ion-icon {
@@ -147,7 +319,7 @@ body {
 }
 
 /* ==============================
-   Dashboard Sync Badge
+   DASHBOARD SYNC BADGE
    ============================== */
 .sync-badge {
     display: inline-flex;
@@ -161,6 +333,11 @@ body {
     color: var(--text-muted);
     border: 1px solid var(--border-color);
     transition: all 0.3s ease;
+    cursor: pointer;
+}
+
+.sync-badge:hover {
+    transform: scale(1.05);
 }
 
 .sync-badge.active {
@@ -175,7 +352,7 @@ body {
 }
 
 /* ==============================
-   Sync Info Card on Dashboard
+   SYNC INFO CARD
    ============================== */
 .sync-info-card {
     background: linear-gradient(135deg, #EEF2FF, #ECFDF5);
@@ -203,7 +380,7 @@ body {
     color: var(--text-main);
 }
 
-.sync-info-card p {
+.sync-info-card > p {
     font-size: 0.875rem;
     color: var(--text-muted);
     line-height: 1.6;
@@ -216,6 +393,7 @@ body {
     gap: 0.5rem;
     font-size: 0.8rem;
     color: var(--text-muted);
+    flex-wrap: wrap;
 }
 
 .connected-devices ion-icon {
@@ -225,7 +403,7 @@ body {
 }
 
 /* ==============================
-   Sidebar
+   SIDEBAR
    ============================== */
 .sidebar {
     width: 250px;
@@ -276,7 +454,9 @@ body {
     font-size: 1.25rem;
 }
 
-/* Main Content */
+/* ==============================
+   MAIN CONTENT
+   ============================== */
 .content {
     flex: 1;
     margin-left: 250px;
@@ -315,7 +495,9 @@ header p, .subtitle {
     margin-top: 0.5rem;
 }
 
-/* Cards & Stats */
+/* ==============================
+   CARDS & STATS
+   ============================== */
 .stats-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
@@ -372,14 +554,18 @@ header p, .subtitle {
     font-weight: 700;
 }
 
-/* Base Quick Actions */
+/* ==============================
+   QUICK ACTIONS
+   ============================== */
 .quick-actions {
     display: flex;
     gap: 1rem;
     margin-top: 2rem;
 }
 
-/* Buttons */
+/* ==============================
+   BUTTONS
+   ============================== */
 .btn {
     display: inline-flex;
     align-items: center;
@@ -399,12 +585,18 @@ header p, .subtitle {
     transform: scale(0.97);
 }
 
+.btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    transform: none;
+}
+
 .btn.primary {
     background-color: var(--primary);
     color: white;
 }
 
-.btn.primary:hover {
+.btn.primary:hover:not(:disabled) {
     background-color: var(--primary-hover);
     box-shadow: 0 4px 12px rgba(79, 70, 229, 0.3);
 }
@@ -415,7 +607,7 @@ header p, .subtitle {
     border: 1px solid var(--border-color);
 }
 
-.btn.secondary:hover {
+.btn.secondary:hover:not(:disabled) {
     background-color: var(--bg-color);
 }
 
@@ -437,7 +629,9 @@ header p, .subtitle {
     width: 100%;
 }
 
-/* Tables */
+/* ==============================
+   TABLES
+   ============================== */
 .table-responsive {
     overflow-x: auto;
 }
@@ -473,7 +667,9 @@ tbody tr:hover {
     flex-wrap: wrap;
 }
 
-/* Forms */
+/* ==============================
+   FORMS
+   ============================== */
 .form-group {
     margin-bottom: 1.2rem;
 }
@@ -508,7 +704,9 @@ small {
     font-size: 0.75rem;
 }
 
-/* Modals */
+/* ==============================
+   MODALS
+   ============================== */
 .modal-overlay {
     position: fixed;
     top: 0;
@@ -540,6 +738,7 @@ small {
     box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
     transform: translateY(20px);
     transition: 0.3s;
+    margin: 1rem;
 }
 
 .modal-overlay.active .modal {
@@ -566,7 +765,9 @@ small {
     padding: 1.5rem;
 }
 
-/* Attendance List */
+/* ==============================
+   ATTENDANCE LIST
+   ============================== */
 .attendance-item {
     display: flex;
     justify-content: space-between;
@@ -599,7 +800,9 @@ small {
     align-items: center;
 }
 
-/* Toasts */
+/* ==============================
+   TOASTS
+   ============================== */
 .toast-container {
     position: fixed;
     bottom: 20px;
@@ -628,7 +831,7 @@ small {
 }
 
 /* ==============================
-   Responsive
+   RESPONSIVE
    ============================== */
 @media (max-width: 768px) {
     .sidebar {
@@ -710,5 +913,18 @@ small {
 
     .quick-actions {
         flex-direction: column;
+    }
+
+    .sync-setup-card {
+        padding: 1.5rem;
+    }
+
+    .sync-code-input-group {
+        flex-direction: column;
+    }
+
+    .connected-devices {
+        flex-direction: column;
+        align-items: flex-start;
     }
 }

@@ -1,50 +1,379 @@
 // =========================================================
-// Firebase Configuration — Real-Time Cloud Sync
+// TuitionHub — Auto Sync Across All Devices
 // =========================================================
-// This uses a FREE Firebase Realtime Database for instant
-// cross-device syncing. Data is stored in the cloud and
-// automatically pushed to every connected device.
+// Uses JSONBlob.com (FREE, no signup, no API key needed)
+// for instant cross-device cloud syncing.
+// 
+// How it works:
+// 1. First time → creates a cloud data blob → gives you a Sync Code
+// 2. On other devices → enter the Sync Code → data syncs automatically
+// 3. Polls every 3 seconds for changes from other devices
+// 4. Any change is pushed to cloud + pulled from cloud
 // =========================================================
 
-const firebaseConfig = {
-    apiKey: "AIzaSyBtuitionhub-demo-key-placeholder",
-    authDomain: "tuitionhub-sync.firebaseapp.com",
-    databaseURL: "https://tuitionhub-sync-default-rtdb.firebaseio.com",
-    projectId: "tuitionhub-sync",
-    storageBucket: "tuitionhub-sync.appspot.com",
-    messagingSenderId: "000000000000",
-    appId: "1:000000000000:web:0000000000000000000000"
+const JSONBLOB_API = 'https://jsonblob.com/api/jsonBlob';
+
+// =========================================================
+// Sync Manager — Handles all cloud sync operations
+// =========================================================
+const syncManager = {
+    blobId: null,
+    syncInterval: null,
+    lastDataHash: '',
+    isSyncing: false,
+
+    // Check if we already have a sync session
+    checkExistingSync() {
+        const savedBlobId = localStorage.getItem('tuitionhub_sync_id');
+        if (savedBlobId) {
+            this.blobId = savedBlobId;
+            this.startApp();
+        } else {
+            // Show the sync setup screen
+            document.getElementById('sync-setup-overlay').style.display = 'flex';
+            document.getElementById('sync-status').style.display = 'none';
+        }
+    },
+
+    // Create a new cloud sync blob
+    async createNewSync() {
+        const btn = document.getElementById('btn-new-sync');
+        btn.disabled = true;
+        btn.innerHTML = '<ion-icon name="hourglass-outline"></ion-icon> Creating...';
+
+        try {
+            // Initialize with empty data
+            const initialData = {
+                students: [],
+                attendance: {},
+                fees: {},
+                _meta: {
+                    createdAt: new Date().toISOString(),
+                    lastModified: new Date().toISOString()
+                }
+            };
+
+            const response = await fetch(JSONBLOB_API, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
+                },
+                body: JSON.stringify(initialData)
+            });
+
+            if (!response.ok) throw new Error('Failed to create sync: ' + response.status);
+
+            // Extract blob ID from the Location header or response URL
+            const locationHeader = response.headers.get('Location');
+            if (locationHeader) {
+                this.blobId = locationHeader.split('/').pop();
+            } else {
+                // Fallback: parse from response URL
+                const url = response.url;
+                this.blobId = url.split('/').pop();
+            }
+
+            if (!this.blobId || this.blobId === 'jsonBlob') {
+                // If we still can't get the ID, try reading it from response
+                const responseData = await response.json();
+                throw new Error('Could not get blob ID. Try again.');
+            }
+
+            // Save the blob ID
+            localStorage.setItem('tuitionhub_sync_id', this.blobId);
+
+            // Save initial data locally
+            app.data = { students: [], attendance: {}, fees: {} };
+            localStorage.setItem('tuitionAppData', JSON.stringify(app.data));
+
+            // Show the sync code to the user
+            this.startApp();
+
+            // Show the sync code modal immediately
+            setTimeout(() => {
+                this.showSyncCode();
+                app.showToast('✅ Cloud sync created! Save your Sync Code.');
+            }, 500);
+
+        } catch (error) {
+            console.error('Create sync error:', error);
+            btn.disabled = false;
+            btn.innerHTML = '<ion-icon name="cloud-upload-outline"></ion-icon> Create New Sync';
+            alert('Failed to create cloud sync. Please check your internet connection and try again.\n\nError: ' + error.message);
+        }
+    },
+
+    // Join an existing sync using a code
+    async joinExistingSync() {
+        const codeInput = document.getElementById('join-sync-code');
+        const code = codeInput.value.trim();
+
+        if (!code) {
+            alert('Please enter a Sync Code');
+            codeInput.focus();
+            return;
+        }
+
+        const btn = document.getElementById('btn-join-sync');
+        btn.disabled = true;
+        btn.innerHTML = '<ion-icon name="hourglass-outline"></ion-icon> Connecting...';
+
+        try {
+            // Try to fetch data from the blob
+            const response = await fetch(`${JSONBLOB_API}/${code}`, {
+                headers: { 'Accept': 'application/json' }
+            });
+
+            if (!response.ok) {
+                if (response.status === 404) {
+                    throw new Error('Sync Code not found. Please check and try again.');
+                }
+                throw new Error('Connection failed: ' + response.status);
+            }
+
+            const cloudData = await response.json();
+
+            // Save the blob ID and data
+            this.blobId = code;
+            localStorage.setItem('tuitionhub_sync_id', this.blobId);
+
+            app.data = {
+                students: cloudData.students || [],
+                attendance: cloudData.attendance || {},
+                fees: cloudData.fees || {}
+            };
+            localStorage.setItem('tuitionAppData', JSON.stringify(app.data));
+
+            this.startApp();
+
+            setTimeout(() => {
+                app.showToast('✅ Connected! Data synced from cloud.');
+            }, 500);
+
+        } catch (error) {
+            console.error('Join sync error:', error);
+            btn.disabled = false;
+            btn.innerHTML = '<ion-icon name="log-in-outline"></ion-icon> Connect';
+            alert(error.message);
+        }
+    },
+
+    // Start the main app after sync is established
+    startApp() {
+        // Hide setup screen, show main app
+        document.getElementById('sync-setup-overlay').style.display = 'none';
+        document.getElementById('main-sidebar').style.display = 'flex';
+        document.getElementById('main-content').style.display = 'block';
+        document.getElementById('sync-status').style.display = 'flex';
+
+        // Initialize the app
+        app.init();
+
+        // Start auto-sync polling
+        this.startAutoSync();
+
+        // Update sync status
+        this.updateSyncUI('connected');
+    },
+
+    // Push local data to cloud
+    async pushToCloud() {
+        if (!this.blobId || this.isSyncing) return;
+        this.isSyncing = true;
+
+        try {
+            this.updateSyncUI('syncing');
+
+            const payload = {
+                students: app.data.students || [],
+                attendance: app.data.attendance || {},
+                fees: app.data.fees || {},
+                _meta: {
+                    lastModified: new Date().toISOString()
+                }
+            };
+
+            const response = await fetch(`${JSONBLOB_API}/${this.blobId}`, {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
+                },
+                body: JSON.stringify(payload)
+            });
+
+            if (!response.ok) throw new Error('Push failed: ' + response.status);
+
+            this.lastDataHash = this.hashData(app.data);
+            this.updateSyncUI('connected');
+            this.updateLastSyncTime();
+
+        } catch (error) {
+            console.error('Push to cloud error:', error);
+            this.updateSyncUI('error');
+        }
+
+        this.isSyncing = false;
+    },
+
+    // Pull data from cloud (check for changes from other devices)
+    async pullFromCloud() {
+        if (!this.blobId || this.isSyncing) return;
+
+        try {
+            const response = await fetch(`${JSONBLOB_API}/${this.blobId}`, {
+                headers: { 'Accept': 'application/json' },
+                cache: 'no-store'
+            });
+
+            if (!response.ok) throw new Error('Pull failed: ' + response.status);
+
+            const cloudData = await response.json();
+
+            const cloudPayload = {
+                students: cloudData.students || [],
+                attendance: cloudData.attendance || {},
+                fees: cloudData.fees || {}
+            };
+
+            const cloudHash = this.hashData(cloudPayload);
+
+            // If cloud data is different from local, update local
+            if (cloudHash !== this.lastDataHash) {
+                app.data = cloudPayload;
+                localStorage.setItem('tuitionAppData', JSON.stringify(app.data));
+                this.lastDataHash = cloudHash;
+
+                // Refresh the current view
+                app.refreshAllViews();
+                this.updateSyncUI('connected');
+                this.updateLastSyncTime();
+            }
+
+        } catch (error) {
+            console.error('Pull from cloud error:', error);
+            this.updateSyncUI('error');
+        }
+    },
+
+    // Auto-sync: polls cloud every 3 seconds
+    startAutoSync() {
+        // First pull
+        this.pullFromCloud();
+
+        // Then poll periodically
+        this.syncInterval = setInterval(() => {
+            this.pullFromCloud();
+        }, 3000); // Check every 3 seconds
+    },
+
+    stopAutoSync() {
+        if (this.syncInterval) {
+            clearInterval(this.syncInterval);
+        }
+    },
+
+    // Simple hash to detect data changes
+    hashData(data) {
+        return JSON.stringify({
+            students: data.students,
+            attendance: data.attendance,
+            fees: data.fees
+        });
+    },
+
+    // UI Updates
+    updateSyncUI(status) {
+        const syncStatus = document.getElementById('sync-status');
+        const sidebarSync = document.getElementById('sidebar-sync');
+        const syncBadge = document.getElementById('sync-badge');
+        const syncBadgeText = document.getElementById('sync-badge-text');
+
+        syncStatus.className = 'sync-status';
+
+        if (status === 'connected') {
+            syncStatus.classList.add('connected');
+            syncStatus.innerHTML = '<div class="sync-dot"></div><span>☁️ Cloud Connected</span>';
+            if (sidebarSync) {
+                sidebarSync.className = 'sidebar-sync connected';
+                sidebarSync.innerHTML = '<ion-icon name="cloud-done-outline"></ion-icon><span>Cloud Synced</span>';
+            }
+            if (syncBadge) {
+                syncBadge.classList.add('active');
+                if (syncBadgeText) syncBadgeText.textContent = 'Live Sync';
+            }
+            // Auto-hide after 3s
+            setTimeout(() => syncStatus.classList.add('hide'), 3000);
+        } else if (status === 'syncing') {
+            syncStatus.classList.add('syncing');
+            syncStatus.innerHTML = '<div class="sync-dot"></div><span>🔄 Syncing...</span>';
+            syncStatus.classList.remove('hide');
+            if (sidebarSync) {
+                sidebarSync.className = 'sidebar-sync syncing';
+                sidebarSync.innerHTML = '<ion-icon name="sync-outline"></ion-icon><span>Syncing...</span>';
+            }
+        } else if (status === 'error') {
+            syncStatus.classList.add('disconnected');
+            syncStatus.innerHTML = '<div class="sync-dot"></div><span>⚠️ Sync Error — Retrying...</span>';
+            syncStatus.classList.remove('hide');
+            if (sidebarSync) {
+                sidebarSync.className = 'sidebar-sync disconnected';
+                sidebarSync.innerHTML = '<ion-icon name="cloud-offline-outline"></ion-icon><span>Retry...</span>';
+            }
+            if (syncBadge) {
+                syncBadge.classList.remove('active');
+                if (syncBadgeText) syncBadgeText.textContent = 'Reconnecting...';
+            }
+        }
+    },
+
+    updateLastSyncTime() {
+        const el = document.getElementById('last-sync-time');
+        if (el) {
+            el.textContent = new Date().toLocaleTimeString();
+        }
+    },
+
+    // Show sync code modal
+    showSyncCode() {
+        if (!this.blobId) return;
+        document.getElementById('sync-code-display').textContent = this.blobId;
+        document.getElementById('sync-code-modal').classList.add('active');
+    },
+
+    // Copy sync code to clipboard
+
+    copySyncCode() {
+        if (!this.blobId) return;
+        navigator.clipboard.writeText(this.blobId).then(() => {
+            app.showToast('📋 Sync Code copied to clipboard!');
+        }).catch(() => {
+            // Fallback for older browsers
+            const textarea = document.createElement('textarea');
+            textarea.value = this.blobId;
+            document.body.appendChild(textarea);
+            textarea.select();
+            document.execCommand('copy');
+            document.body.removeChild(textarea);
+            app.showToast('📋 Sync Code copied!');
+        });
+    },
+
+    // Reset sync (disconnect from cloud)
+    resetSync() {
+        if (confirm('This will disconnect from cloud sync. Your local data will be kept. Continue?')) {
+            this.stopAutoSync();
+            localStorage.removeItem('tuitionhub_sync_id');
+            this.blobId = null;
+            location.reload();
+        }
+    }
 };
 
-// Initialize Firebase
-let firebaseApp = null;
-let database = null;
-let dbRef = null;
-let isFirebaseConnected = false;
-
-try {
-    firebaseApp = firebase.initializeApp(firebaseConfig);
-    database = firebase.database();
-    dbRef = database.ref('tuitionhub');
-
-    // Monitor connection state
-    const connectedRef = database.ref('.info/connected');
-    connectedRef.on('value', (snap) => {
-        if (snap.val() === true) {
-            isFirebaseConnected = true;
-            app.updateSyncStatus('connected');
-        } else {
-            isFirebaseConnected = false;
-            app.updateSyncStatus('disconnected');
-        }
-    });
-} catch (error) {
-    console.warn('Firebase initialization failed. Using local storage only.', error);
-    isFirebaseConnected = false;
-}
 
 // =========================================================
-// Core App Logic with Cloud Sync
+// Core App Logic
 // =========================================================
 const app = {
     data: {
@@ -53,78 +382,16 @@ const app = {
         fees: {}
     },
 
-    syncTimeout: null,
-    isListeningToFirebase: false,
-    lastSyncTime: null,
-
     init() {
         this.loadData();
         this.bindEvents();
         this.navigate('dashboard');
-        this.startFirebaseListener();
 
-        // Default attendance date to today
         document.getElementById('attendance-date').valueAsDate = new Date();
     },
 
-    // --- Sync Status UI ---
-    updateSyncStatus(status) {
-        const syncStatus = document.getElementById('sync-status');
-        const sidebarSync = document.getElementById('sidebar-sync');
-        const syncBadge = document.getElementById('sync-badge');
-
-        syncStatus.className = 'sync-status';
-
-        if (status === 'connected') {
-            syncStatus.classList.add('connected');
-            syncStatus.innerHTML = '<div class="sync-dot"></div><span>Cloud Connected</span>';
-            if (sidebarSync) {
-                sidebarSync.innerHTML = '<ion-icon name="cloud-done-outline"></ion-icon><span>Cloud Synced</span>';
-                sidebarSync.className = 'sidebar-sync connected';
-            }
-            if (syncBadge) {
-                syncBadge.classList.add('active');
-                syncBadge.innerHTML = '<ion-icon name="cloud-done-outline"></ion-icon><span>Live Sync</span>';
-            }
-        } else if (status === 'syncing') {
-            syncStatus.classList.add('syncing');
-            syncStatus.innerHTML = '<div class="sync-dot"></div><span>Syncing...</span>';
-            if (sidebarSync) {
-                sidebarSync.innerHTML = '<ion-icon name="sync-outline"></ion-icon><span>Syncing...</span>';
-                sidebarSync.className = 'sidebar-sync syncing';
-            }
-        } else if (status === 'disconnected') {
-            syncStatus.classList.add('disconnected');
-            syncStatus.innerHTML = '<div class="sync-dot"></div><span>Offline — Saved Locally</span>';
-            if (sidebarSync) {
-                sidebarSync.innerHTML = '<ion-icon name="cloud-offline-outline"></ion-icon><span>Offline Mode</span>';
-                sidebarSync.className = 'sidebar-sync disconnected';
-            }
-            if (syncBadge) {
-                syncBadge.classList.remove('active');
-                syncBadge.innerHTML = '<ion-icon name="cloud-offline-outline"></ion-icon><span>Offline</span>';
-            }
-        }
-
-        // Auto-hide the floating indicator after 3s when connected
-        if (status === 'connected') {
-            setTimeout(() => {
-                syncStatus.classList.add('hide');
-            }, 3000);
-        }
-    },
-
-    updateLastSyncTime() {
-        this.lastSyncTime = new Date();
-        const el = document.getElementById('last-sync-time');
-        if (el) {
-            el.textContent = this.lastSyncTime.toLocaleTimeString();
-        }
-    },
-
-    // --- Data Management with Cloud Sync ---
+    // --- Data Management ---
     loadData() {
-        // First, load from localStorage as immediate cache
         const stored = localStorage.getItem('tuitionAppData');
         if (stored) {
             this.data = JSON.parse(stored);
@@ -135,76 +402,20 @@ const app = {
     },
 
     saveData() {
-        // 1. Always save to localStorage (immediate, offline-safe)
+        // Save locally
         localStorage.setItem('tuitionAppData', JSON.stringify(this.data));
 
-        // 2. Push to Firebase (cloud sync)
-        this.pushToFirebase();
+        // Push to cloud
+        syncManager.pushToCloud();
 
-        // 3. Update UI
+        // Update dashboard
         this.updateDashboard();
-    },
-
-    // Push data to Firebase cloud
-    pushToFirebase() {
-        if (!dbRef || !isFirebaseConnected) return;
-
-        this.updateSyncStatus('syncing');
-
-        // Debounce Firebase writes to avoid excessive writes
-        clearTimeout(this.syncTimeout);
-        this.syncTimeout = setTimeout(() => {
-            dbRef.set(this.data)
-                .then(() => {
-                    this.updateSyncStatus('connected');
-                    this.updateLastSyncTime();
-                    this.showToast('✅ Synced to cloud');
-                })
-                .catch((error) => {
-                    console.error('Firebase write error:', error);
-                    this.updateSyncStatus('disconnected');
-                    this.showToast('⚠️ Sync failed — saved locally');
-                });
-        }, 500);
-    },
-
-    // Listen for real-time changes from Firebase (from other devices)
-    startFirebaseListener() {
-        if (!dbRef) return;
-
-        dbRef.on('value', (snapshot) => {
-            const cloudData = snapshot.val();
-            if (!cloudData) return;
-
-            // Merge cloud data (cloud wins for conflicts)
-            const localTimestamp = localStorage.getItem('tuitionAppLastWrite');
-
-            this.data = {
-                students: cloudData.students || [],
-                attendance: cloudData.attendance || {},
-                fees: cloudData.fees || {}
-            };
-
-            // Save to local cache
-            localStorage.setItem('tuitionAppData', JSON.stringify(this.data));
-
-            // Update all UI views
-            this.refreshAllViews();
-            this.updateSyncStatus('connected');
-            this.updateLastSyncTime();
-        }, (error) => {
-            console.error('Firebase read error:', error);
-            this.updateSyncStatus('disconnected');
-        });
-
-        this.isListeningToFirebase = true;
     },
 
     // Refresh all currently visible views
     refreshAllViews() {
         const activePage = document.querySelector('.page.active');
         if (!activePage) return;
-
         const pageId = activePage.id;
         if (pageId === 'dashboard') this.updateDashboard();
         if (pageId === 'students') this.renderStudents();
@@ -228,30 +439,29 @@ const app = {
     },
 
     bindEvents() {
-        // Navigation links
         document.querySelectorAll('.nav-links li').forEach(li => {
             li.addEventListener('click', () => this.navigate(li.dataset.target));
         });
 
-        // Modals
         document.getElementById('btn-add-student').addEventListener('click', () => this.openStudentModal());
         document.getElementById('close-modal').addEventListener('click', () => this.closeStudentModal());
 
-        // Forms
         document.getElementById('student-form').addEventListener('submit', (e) => {
             e.preventDefault();
             this.saveStudent();
         });
 
-        // Attendance date change
         document.getElementById('attendance-date').addEventListener('change', () => {
             this.renderAttendance();
         });
 
         // Close modal on overlay click
         document.getElementById('student-modal').addEventListener('click', (e) => {
-            if (e.target.id === 'student-modal') {
-                this.closeStudentModal();
+            if (e.target.id === 'student-modal') this.closeStudentModal();
+        });
+        document.getElementById('sync-code-modal').addEventListener('click', (e) => {
+            if (e.target.id === 'sync-code-modal') {
+                document.getElementById('sync-code-modal').classList.remove('active');
             }
         });
     },
@@ -263,7 +473,6 @@ const app = {
         toast.className = 'toast';
         toast.textContent = message;
         container.appendChild(toast);
-
         setTimeout(() => {
             toast.style.opacity = '0';
             setTimeout(() => toast.remove(), 300);
@@ -284,7 +493,6 @@ const app = {
             const lastPaid = this.data.fees[student.id]?.lastPaidMonth;
             return lastPaid !== currentMonth;
         }).length;
-
         document.getElementById('stat-pending-fees').textContent = pendingCount;
     },
 
@@ -301,7 +509,6 @@ const app = {
         } else {
             document.getElementById('student-id').value = '';
         }
-
         document.getElementById('student-modal').classList.add('active');
     },
 
@@ -319,7 +526,7 @@ const app = {
             const index = this.data.students.findIndex(s => s.id === idInput);
             if (index > -1) {
                 this.data.students[index] = { ...this.data.students[index], name, phone, feeAmount };
-                this.showToast('Student updated — syncing...');
+                this.showToast('✅ Student updated — syncing...');
             }
         } else {
             const newStudent = {
@@ -330,7 +537,7 @@ const app = {
                 joinDate: new Date().toISOString().split('T')[0]
             };
             this.data.students.push(newStudent);
-            this.showToast('Student added — syncing...');
+            this.showToast('✅ Student added — syncing...');
         }
 
         this.saveData();
@@ -343,7 +550,7 @@ const app = {
             this.data.students = this.data.students.filter(s => s.id !== id);
             this.saveData();
             this.renderStudents();
-            this.showToast('Student deleted — syncing...');
+            this.showToast('🗑️ Student deleted — syncing...');
         }
     },
 
@@ -352,7 +559,7 @@ const app = {
         tbody.innerHTML = '';
 
         if (this.data.students.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="4" style="text-align:center">No students found. Add one!</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; padding:2rem; color:var(--text-muted);">No students found. Click "Add Student" to get started!</td></tr>';
             return;
         }
 
@@ -386,7 +593,7 @@ const app = {
         const dateAttendance = this.data.attendance[dateInput];
 
         if (this.data.students.length === 0) {
-            listContainer.innerHTML = '<p style="padding: 1rem; text-align:center;">No students added yet.</p>';
+            listContainer.innerHTML = '<p style="padding: 2rem; text-align:center; color:var(--text-muted);">No students added yet.</p>';
             return;
         }
 
@@ -430,7 +637,7 @@ const app = {
         const todayDay = new Date().getDate();
 
         if (this.data.students.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="5" style="text-align:center">No students found.</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; padding:2rem; color:var(--text-muted);">No students found.</td></tr>';
             return;
         }
 
@@ -477,7 +684,7 @@ const app = {
         this.data.fees[studentId].lastPaidMonth = monthStr;
         this.saveData();
         this.renderFees();
-        this.showToast('Fee marked as paid — syncing...');
+        this.showToast('✅ Fee marked as paid — syncing...');
     },
 
     unpayFee(studentId) {
@@ -507,13 +714,14 @@ const app = {
 
         const encodedMsg = encodeURIComponent(message);
         const phoneClean = student.phone.replace(/[^0-9]/g, '');
-
         const waUrl = `https://wa.me/${phoneClean}?text=${encodedMsg}`;
         window.open(waUrl, '_blank');
     }
 };
 
-// Initialize App
+// =========================================================
+// App Startup
+// =========================================================
 document.addEventListener('DOMContentLoaded', () => {
-    app.init();
+    syncManager.checkExistingSync();
 });
